@@ -105,6 +105,10 @@ class PreyDetectionAPIConfig(BaseSettings):
     api_url: str = Field(default="https://prey-detection.florian-mutel.workers.dev", description="Prey detection API endpoint URL")
     prey_detector_api_key: str | None = Field(default=None, description="API key for prey detection service")
 
+class NotificationConfig(BaseSettings):
+    """Configuration for external notifications."""
+    catdoor_api_url: str = Field(default="http://100.78.10.14:8080/detected", description="Cat door API endpoint for prey detection notifications")
+
 class RuntimeConfig(BaseSettings):
     """Configuration for logging."""
     log_level: str = Field(default="INFO", description="Logging level")
@@ -130,5 +134,6 @@ detector_config = DetectionPipelineConfig()
 prey_detector_tracker_config = PreyDetectorTrackerConfig()
 catflap_config = CatFlapConfig()
 prey_detection_api_config = PreyDetectionAPIConfig()
+notification_config = NotificationConfig()
 runtime_config = RuntimeConfig()
 cloud_sync_config = CloudSyncConfig()

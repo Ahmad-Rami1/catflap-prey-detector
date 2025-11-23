@@ -1,8 +1,9 @@
 import asyncio
 import logging
+import aiohttp
 from datetime import datetime, timedelta
 from .rfid_jammer import block_catflap, unblock_catflap
-from catflap_prey_detector.detection.config import catflap_config
+from catflap_prey_detector.detection.config import catflap_config, notification_config
 
 logger = logging.getLogger(__name__)
 
@@ -139,20 +140,35 @@ catflap_controller = CatflapController()
 
 async def handle_prey_detection() -> str:
     """
-    Handle prey detection by locking the catflap and returning the lock status message.
-    
+    Handle prey detection by sending HTTP request to cat door API.
+
     Returns:
-        Lock status message for joining with detection message
+        Status message for joining with detection message
     """
     try:
-        logger.info("Locking catflap")
-        await catflap_controller.lock_catflap("Cat with prey detected")
-        remaining = catflap_controller.get_remaining_lock_time()
-        return f"🕐 Catflap locked for {remaining:.1f} more seconds"
-        
+        logger.info(f"Sending prey detection notification to {notification_config.catdoor_api_url}")
+
+        # Send HTTP request to cat door API endpoint
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                notification_config.catdoor_api_url,
+                timeout=aiohttp.ClientTimeout(total=5.0)
+            ) as response:
+                if response.status == 200:
+                    response_data = await response.json()
+                    logger.info(f"Cat door API response: {response_data}")
+                    locked_until = response_data.get('locked_until', 'unknown')
+                    return f"🕐 Cat door locked until {locked_until}"
+                else:
+                    logger.warning(f"Cat door API returned status {response.status}")
+                    return f"⚠️ Cat door API returned status {response.status}"
+
+    except asyncio.TimeoutError:
+        logger.error("Timeout while contacting cat door API")
+        return "⚠️ Timeout contacting cat door API"
     except Exception as e:
-        logger.error(f"Error handling prey detection: {e}")
-        return "⚠️ Warning: Could not lock catflap"
+        logger.error(f"Error sending prey detection notification: {e}")
+        return f"⚠️ Could not notify cat door API: {str(e)}"
 
 
 class DetectionPauser:
