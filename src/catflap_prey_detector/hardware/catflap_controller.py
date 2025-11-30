@@ -2,7 +2,6 @@ import asyncio
 import logging
 import aiohttp
 from datetime import datetime, timedelta
-from .rfid_jammer import block_catflap, unblock_catflap
 from catflap_prey_detector.detection.config import catflap_config, notification_config
 
 logger = logging.getLogger(__name__)
@@ -81,7 +80,7 @@ class CatflapController:
             
     def _perform_lock_operation(self, reason: str) -> None:
         """Perform the actual lock operation with state management."""
-        block_catflap()
+        # GPIO removed - Pi Zero handles locking
         self.is_locked = True
         self.lock_start_time = datetime.now()
         
@@ -97,8 +96,8 @@ class CatflapController:
     
     def _perform_unlock_operation(self, reason: str) -> None:
         """Perform the actual unlock operation with state management."""
-        unblock_catflap()
-        
+        # GPIO removed - Pi Zero handles unlocking
+
         # Cancel unlock task if it exists
         if self.unlock_task and not self.unlock_task.done():
             self.unlock_task.cancel()
