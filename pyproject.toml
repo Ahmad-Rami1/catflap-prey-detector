@@ -18,7 +18,7 @@ dependencies = [
     "fastapi>=0.116.1",
     "google-cloud-aiplatform>=1.109.0",
     "ncnn>=1.0.20250503",
-    "numpy==1.24.2",
+    "numpy>=1.26.0",
     "opencv-python>=4.8.1.78",
     "pydantic-settings>=2.0.0",
     "pytest>=8.4.1",
