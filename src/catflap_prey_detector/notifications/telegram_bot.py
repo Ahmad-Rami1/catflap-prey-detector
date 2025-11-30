@@ -22,6 +22,7 @@ from tenacity import (
 
 from catflap_prey_detector.hardware.catflap_controller import catflap_controller
 from catflap_prey_detector.detection.camera_manager import CameraManager
+from catflap_prey_detector.detection.config import notification_config
 
 logger = logging.getLogger(__name__)
 
@@ -140,14 +141,22 @@ async def cmd_lock(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
     logger.info(f"Lock command received from user {user_id=}")
 
-    success = await catflap_controller.lock_catflap("Manual lock via Telegram")
+    try:
+        # Send lock request to Pi Zero
+        async with httpx.AsyncClient() as client:
+            response_api = await client.get(
+                f"{notification_config.catdoor_base_url}/mode/red",
+                timeout=5.0
+            )
 
-    if success:
-        remaining = catflap_controller.get_remaining_lock_time()
-        response = f"🔒 Catflap locked successfully!\n🕐 Lock duration: {remaining:.1f} seconds"
-    else:
-        remaining = catflap_controller.get_remaining_lock_time()
-        response = f"ℹ️ Catflap is already locked.\n🕐 Remaining time: {remaining:.1f} seconds"
+        if response_api.status_code == 200:
+            response = "🔒 Catflap locked successfully via Pi Zero!"
+        else:
+            response = f"⚠️ Failed to lock catflap. Pi Zero returned status {response_api.status_code}"
+
+    except Exception as e:
+        logger.error(f"Error locking catflap: {e}")
+        response = f"❌ Error locking catflap: {str(e)}"
 
     await update.message.reply_text(response)
 
@@ -163,12 +172,22 @@ async def cmd_unlock(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     user_id = update.effective_user.id
     logger.info(f"Unlock command received from user {user_id=}")
 
-    success = await catflap_controller.unlock_catflap("Manual unlock via Telegram")
+    try:
+        # Send unlock request to Pi Zero
+        async with httpx.AsyncClient() as client:
+            response_api = await client.get(
+                f"{notification_config.catdoor_base_url}/mode/green",
+                timeout=5.0
+            )
 
-    if success:
-        response = "🔓 Catflap unlocked successfully!"
-    else:
-        response = "ℹ️ Catflap was not locked."
+        if response_api.status_code == 200:
+            response = "🔓 Catflap unlocked successfully via Pi Zero!"
+        else:
+            response = f"⚠️ Failed to unlock catflap. Pi Zero returned status {response_api.status_code}"
+
+    except Exception as e:
+        logger.error(f"Error unlocking catflap: {e}")
+        response = f"❌ Error unlocking catflap: {str(e)}"
 
     await update.message.reply_text(response)
 

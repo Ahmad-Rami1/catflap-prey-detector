@@ -108,6 +108,7 @@ class PreyDetectionAPIConfig(BaseSettings):
 class NotificationConfig(BaseSettings):
     """Configuration for external notifications."""
     catdoor_api_url: str = Field(default="http://100.78.10.14:8080/detected", description="Cat door API endpoint for prey detection notifications")
+    catdoor_base_url: str = Field(default="http://100.78.10.14:8080", description="Cat door API base URL")
 
 class RuntimeConfig(BaseSettings):
     """Configuration for logging."""

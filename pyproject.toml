@@ -7,7 +7,7 @@ name = "catflap-prey-detector"
 version = "0.1.0"
 description = "Smart catflap system with AI-powered prey detection"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 license = "Apache-2.0"
 keywords = ["catflap", "pet", "cat", "prey-detection", "computer-vision", "raspberry-pi", "yolo", "home-automation"]
 dependencies = [
