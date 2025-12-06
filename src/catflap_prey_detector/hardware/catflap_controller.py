@@ -139,25 +139,24 @@ catflap_controller = CatflapController()
 
 async def handle_prey_detection() -> str:
     """
-    Handle prey detection by sending HTTP request to cat door API.
+    Handle prey detection by locking cat door indefinitely (RED mode).
+    Door will remain locked until manually unlocked.
 
     Returns:
         Status message for joining with detection message
     """
     try:
-        logger.info(f"Sending prey detection notification to {notification_config.catdoor_api_url}")
+        logger.info(f"Locking cat door indefinitely (RED mode)")
 
-        # Send HTTP request to cat door API endpoint
+        # Send HTTP request to lock cat door to RED (indefinitely)
         async with aiohttp.ClientSession() as session:
             async with session.get(
-                notification_config.catdoor_api_url,
+                f"{notification_config.catdoor_base_url}/mode/red",
                 timeout=aiohttp.ClientTimeout(total=5.0)
             ) as response:
                 if response.status == 200:
-                    response_data = await response.json()
-                    logger.info(f"Cat door API response: {response_data}")
-                    locked_until = response_data.get('locked_until', 'unknown')
-                    return f"🕐 Cat door locked until {locked_until}"
+                    logger.info("Cat door locked to RED successfully (indefinitely)")
+                    return "🔒 Cat door LOCKED indefinitely - manual unlock required"
                 else:
                     logger.warning(f"Cat door API returned status {response.status}")
                     return f"⚠️ Cat door API returned status {response.status}"
@@ -166,8 +165,8 @@ async def handle_prey_detection() -> str:
         logger.error("Timeout while contacting cat door API")
         return "⚠️ Timeout contacting cat door API"
     except Exception as e:
-        logger.error(f"Error sending prey detection notification: {e}")
-        return f"⚠️ Could not notify cat door API: {str(e)}"
+        logger.error(f"Error locking cat door: {e}")
+        return f"⚠️ Could not lock cat door: {str(e)}"
 
 
 class DetectionPauser:
@@ -189,3 +188,77 @@ class DetectionPauser:
 
 
 detection_pauser = DetectionPauser(catflap_controller)
+
+
+async def handle_no_prey_detection() -> str:
+    """
+    Handle no prey detection by unlocking door (GREEN), then auto-locking to YELLOW after 5 minutes.
+
+    Returns:
+        Status message for joining with detection message
+    """
+    try:
+        logger.info(f"No prey detected - unlocking cat door (GREEN)")
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"{notification_config.catdoor_base_url}/mode/green",
+                timeout=aiohttp.ClientTimeout(total=5.0)
+            ) as response:
+                if response.status == 200:
+                    logger.info("Cat door unlocked successfully (GREEN)")
+                    # Schedule auto-lock to YELLOW after 5 minutes
+                    asyncio.create_task(_auto_lock_after_delay())
+                    return "✅ Cat door unlocked - will auto-lock in 5 minutes"
+                else:
+                    logger.warning(f"Cat door API returned status {response.status}")
+                    return f"⚠️ Cat door API returned status {response.status}"
+
+    except asyncio.TimeoutError:
+        logger.error("Timeout while contacting cat door API")
+        return "⚠️ Timeout contacting cat door API"
+    except Exception as e:
+        logger.error(f"Error unlocking cat door: {e}")
+        return f"⚠️ Could not unlock cat door: {str(e)}"
+
+
+async def _auto_lock_after_delay():
+    """Auto-lock the cat door after 5 minutes - sets to YELLOW unless already RED."""
+    try:
+        logger.info("Auto-lock timer started (5 minutes)")
+        await asyncio.sleep(300)  # 5 minutes
+
+        logger.info("Auto-lock triggered - checking current status first")
+
+        async with aiohttp.ClientSession() as session:
+            # First, get current status
+            async with session.get(
+                f"{notification_config.catdoor_base_url}/status",
+                timeout=aiohttp.ClientTimeout(total=5.0)
+            ) as status_response:
+                if status_response.status == 200:
+                    current_status = await status_response.text()
+                    logger.info(f"Current door status: {current_status}")
+
+                    # Check if already RED (locked due to prey detection)
+                    if "RED" in current_status.upper():
+                        logger.info("Door is already RED (locked) - keeping it RED, not changing to YELLOW")
+                        return
+
+                    # Not RED, so set to YELLOW (only out)
+                    logger.info("Setting cat door to YELLOW (only out)")
+                    async with session.get(
+                        f"{notification_config.catdoor_base_url}/mode/yellow",
+                        timeout=aiohttp.ClientTimeout(total=5.0)
+                    ) as mode_response:
+                        if mode_response.status == 200:
+                            logger.info("✅ Cat door set to YELLOW successfully")
+                        else:
+                            logger.warning(f"⚠️ Failed to set YELLOW - status {mode_response.status}")
+                else:
+                    logger.warning(f"⚠️ Failed to get status - status {status_response.status}")
+
+    except asyncio.CancelledError:
+        logger.info("Auto-lock timer cancelled")
+    except Exception as e:
+        logger.error(f"Error during auto-lock: {e}")
