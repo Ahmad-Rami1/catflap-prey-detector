@@ -193,14 +193,29 @@ detection_pauser = DetectionPauser(catflap_controller)
 async def handle_no_prey_detection() -> str:
     """
     Handle no prey detection by unlocking door (GREEN), then auto-locking to YELLOW after 5 minutes.
+    If door is already RED (locked due to prey), leave it locked.
 
     Returns:
         Status message for joining with detection message
     """
     try:
-        logger.info(f"No prey detected - unlocking cat door (GREEN)")
-
         async with aiohttp.ClientSession() as session:
+            # First, check current status
+            async with session.get(
+                f"{notification_config.catdoor_base_url}/status",
+                timeout=aiohttp.ClientTimeout(total=5.0)
+            ) as status_response:
+                if status_response.status == 200:
+                    current_status = await status_response.text()
+                    logger.info(f"No prey - current door status: {current_status}")
+
+                    # If already RED (locked due to prey), don't unlock
+                    if "RED" in current_status.upper():
+                        logger.info("Door is RED (locked) - keeping it locked, not unlocking")
+                        return "🔒 Door remains LOCKED (prey detected earlier)"
+
+            # Not RED, so unlock to GREEN
+            logger.info(f"No prey detected - unlocking cat door (GREEN)")
             async with session.get(
                 f"{notification_config.catdoor_base_url}/mode/green",
                 timeout=aiohttp.ClientTimeout(total=5.0)
