@@ -12,8 +12,8 @@ class CameraConfig(BaseSettings):
     mode: int = Field(default=1, description="Camera sensor mode")
     fps: int = Field(default=30, description="Camera frames per second")
     warmup_time: float = Field(default=2.0, description="Camera warmup time in seconds")
-    vflip: bool = Field(default=True, description="Vertical flip (mirror vertically)")
-    hflip: bool = Field(default=True, description="Horizontal flip (mirror horizontally)")
+    vflip: bool = Field(default=False, description="Vertical flip (mirror vertically)")
+    hflip: bool = Field(default=False, description="Horizontal flip (mirror horizontally)")
     
     @field_validator('resolution')
     @classmethod
