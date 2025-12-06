@@ -34,4 +34,4 @@ uv.toml
 google-sa.json
 
 # Runtime files
-runtime/
+runtime/.env
