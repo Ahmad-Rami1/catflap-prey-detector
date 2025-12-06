@@ -192,7 +192,7 @@ detection_pauser = DetectionPauser(catflap_controller)
 
 async def handle_no_prey_detection() -> str:
     """
-    Handle no prey detection by unlocking door (GREEN), then auto-locking to YELLOW after 5 minutes.
+    Handle no prey detection by unlocking door (GREEN), then auto-locking to YELLOW after 2 minutes.
     If door is already RED (locked due to prey), leave it locked.
 
     Returns:
@@ -222,9 +222,9 @@ async def handle_no_prey_detection() -> str:
             ) as response:
                 if response.status == 200:
                     logger.info("Cat door unlocked successfully (GREEN)")
-                    # Schedule auto-lock to YELLOW after 5 minutes
+                    # Schedule auto-lock to YELLOW after 2 minutes
                     asyncio.create_task(_auto_lock_after_delay())
-                    return "✅ Cat door unlocked - will auto-lock in 5 minutes"
+                    return "✅ Cat door unlocked - will auto-lock in 2 minutes"
                 else:
                     logger.warning(f"Cat door API returned status {response.status}")
                     return f"⚠️ Cat door API returned status {response.status}"
@@ -238,10 +238,10 @@ async def handle_no_prey_detection() -> str:
 
 
 async def _auto_lock_after_delay():
-    """Auto-lock the cat door after 5 minutes - sets to YELLOW unless already RED."""
+    """Auto-lock the cat door after 2 minutes - sets to YELLOW unless already RED."""
     try:
-        logger.info("Auto-lock timer started (5 minutes)")
-        await asyncio.sleep(300)  # 5 minutes
+        logger.info("Auto-lock timer started (2 minutes)")
+        await asyncio.sleep(120)  # 2 minutes
 
         logger.info("Auto-lock triggered - checking current status first")
 
@@ -260,7 +260,47 @@ async def _auto_lock_after_delay():
                         logger.info("Door is already RED (locked) - keeping it RED, not changing to YELLOW")
                         return
 
-                    # Not RED, so set to YELLOW (only out)
+                    # Not RED, check reed sensor before setting to YELLOW
+                    reed_is_closed = False
+                    max_retries = 3
+                    for attempt in range(max_retries):
+                        async with session.get(
+                            f"{notification_config.catdoor_base_url}/reed/status",
+                            timeout=aiohttp.ClientTimeout(total=5.0)
+                        ) as reed_response:
+                            if reed_response.status == 200:
+                                reed_data = await reed_response.json()
+                                reed_status = reed_data.get("reed_status", "UNKNOWN")
+                                logger.info(f"Reed sensor status (attempt {attempt + 1}/{max_retries}): {reed_status}")
+
+                                if reed_status == "CLOSED":
+                                    reed_is_closed = True
+                                    break
+                                else:
+                                    # Reed is OPEN (cat in door)
+                                    if attempt < max_retries - 1:
+                                        logger.info(f"Reed is OPEN - waiting 30 seconds before retry")
+                                        await asyncio.sleep(30)  # 30 seconds
+                                    else:
+                                        logger.info(f"Reed still OPEN after {max_retries} attempts - will unlock briefly then lock")
+                            else:
+                                logger.warning(f"⚠️ Failed to get reed status - status {reed_response.status}")
+                                break
+
+                    # If reed is still open after retries, unlock to GREEN, wait, then lock to YELLOW
+                    if not reed_is_closed:
+                        logger.info("Reed still OPEN - setting to GREEN to let cat through")
+                        async with session.get(
+                            f"{notification_config.catdoor_base_url}/mode/green",
+                            timeout=aiohttp.ClientTimeout(total=5.0)
+                        ) as green_response:
+                            if green_response.status == 200:
+                                logger.info("Set to GREEN - waiting 5 seconds")
+                                await asyncio.sleep(5)
+                            else:
+                                logger.warning(f"⚠️ Failed to set GREEN - status {green_response.status}")
+
+                    # Set to YELLOW (only out)
                     logger.info("Setting cat door to YELLOW (only out)")
                     async with session.get(
                         f"{notification_config.catdoor_base_url}/mode/yellow",

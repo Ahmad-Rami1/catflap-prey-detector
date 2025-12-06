@@ -41,7 +41,7 @@ class YOLOConfig(BaseSettings):
         return f"{self.model_path}.bin"
     image_size: tuple[int, int] = Field(default=(384, 640), description="Input image size for YOLO model")
     class_thresholds: dict[str, float] = Field(
-        default={"cat": 0.45, "person": 0.75}, 
+        default={"cat": 0.45, "person": 0.90},
         description="Confidence thresholds per class"
     )
     iou_threshold: float = Field(default=0.02, description="IOU threshold for NMS")
