@@ -22,32 +22,38 @@ logger = logging.getLogger(__name__)
 
 def should_skip_detection_recent_exit() -> bool:
     """
-    Check if cat just exited through flap (within last 3 minutes).
+    Check if cat just exited through flap (within last 30 seconds).
     Returns True if should skip detection (recent exit), False if should proceed.
     """
+    logger.info("🔍 Checking if should skip detection due to recent exit...")
     try:
         reed_log_url = f"{notification_config.catdoor_base_url}/logs/reed/last"
+        logger.debug(f"Fetching reed log from: {reed_log_url}")
+
         with urllib.request.urlopen(reed_log_url, timeout=2) as response:
             data = json.loads(response.read().decode())
-            timestamp_str = data.get("timestamp")
+            logger.debug(f"Reed log response: {data}")
 
+            timestamp_str = data.get("timestamp")
             if not timestamp_str:
-                logger.warning("No timestamp in reed log response")
+                logger.warning("⚠️ No timestamp in reed log response - proceeding with detection")
                 return False
 
             # Parse timestamp format: "2025-12-07 13:04:08"
             last_flap_time = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
             time_since_last_flap = datetime.now() - last_flap_time
 
-            if time_since_last_flap < timedelta(minutes=3):
-                logger.info(f"Cat just exited {time_since_last_flap.total_seconds():.1f}s ago - skipping prey detection")
+            logger.info(f"⏱️ Time since last flap: {time_since_last_flap.total_seconds():.1f}s")
+
+            if time_since_last_flap < timedelta(seconds=30):
+                logger.info(f"🚫 SKIPPING prey detection - cat just exited {time_since_last_flap.total_seconds():.1f}s ago")
                 return True
             else:
-                logger.info(f"Last flap was {time_since_last_flap.total_seconds():.1f}s ago - proceeding with detection")
+                logger.info(f"✅ PROCEEDING with detection - last flap was {time_since_last_flap.total_seconds():.1f}s ago")
                 return False
 
     except Exception as e:
-        logger.warning(f"Failed to check reed log (proceeding with detection): {e}")
+        logger.error(f"❌ Failed to check reed log: {type(e).__name__}: {e} - proceeding with detection")
         return False
 
 
