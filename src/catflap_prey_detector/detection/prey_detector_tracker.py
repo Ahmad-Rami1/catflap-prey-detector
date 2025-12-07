@@ -6,16 +6,49 @@ import cv2
 import numpy as np
 import os
 import uuid
-from datetime import datetime
+import json
+import urllib.request
+from datetime import datetime, timedelta
 from catflap_prey_detector.classification.prey_detector_api.async_utils import async_consumer_with_task_group_and_result_processor, async_consumer_queue
 from catflap_prey_detector.classification.prey_detector_api.detector import detect_prey
 from catflap_prey_detector.notifications.telegram_bot import notify_event_async
 from catflap_prey_detector.hardware.catflap_controller import detection_pauser
-from catflap_prey_detector.detection.config import prey_detector_tracker_config, runtime_config
+from catflap_prey_detector.detection.config import prey_detector_tracker_config, runtime_config, notification_config
 from catflap_prey_detector.detection.detection_result import DetectionResult
 from skimage.metrics import structural_similarity as ssim
 
 logger = logging.getLogger(__name__)
+
+
+def should_skip_detection_recent_exit() -> bool:
+    """
+    Check if cat just exited through flap (within last 3 minutes).
+    Returns True if should skip detection (recent exit), False if should proceed.
+    """
+    try:
+        reed_log_url = f"{notification_config.catdoor_base_url}/logs/reed/last"
+        with urllib.request.urlopen(reed_log_url, timeout=2) as response:
+            data = json.loads(response.read().decode())
+            timestamp_str = data.get("timestamp")
+
+            if not timestamp_str:
+                logger.warning("No timestamp in reed log response")
+                return False
+
+            # Parse timestamp format: "2025-12-07 13:04:08"
+            last_flap_time = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
+            time_since_last_flap = datetime.now() - last_flap_time
+
+            if time_since_last_flap < timedelta(minutes=3):
+                logger.info(f"Cat just exited {time_since_last_flap.total_seconds():.1f}s ago - skipping prey detection")
+                return True
+            else:
+                logger.info(f"Last flap was {time_since_last_flap.total_seconds():.1f}s ago - proceeding with detection")
+                return False
+
+    except Exception as e:
+        logger.warning(f"Failed to check reed log (proceeding with detection): {e}")
+        return False
 
 
 def crop_image(image: np.ndarray, position: str, crop_width: int) -> np.ndarray:
@@ -95,6 +128,9 @@ class PreyDetectorTracker:
             logger.info("Prey detection is disabled")
             return
 
+        # Skip detection if cat just exited (within last 3 minutes)
+        if trigger_object_position and should_skip_detection_recent_exit():
+            return
 
         if trigger_object_position:
             from catflap_prey_detector.main import MAIN_LOOP
