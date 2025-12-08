@@ -7,7 +7,7 @@ from datetime import datetime
 import asyncio
 import aiohttp
 from tenacity import retry, stop_after_attempt, retry_if_exception_type, wait_none
-from catflap_prey_detector.hardware.catflap_controller import handle_prey_detection, handle_no_prey_detection
+from catflap_prey_detector.hardware.catflap_controller import handle_prey_detection
 from catflap_prey_detector.detection.detection_result import DetectionResult
 from catflap_prey_detector.detection.config import runtime_config, prey_detection_api_config
 
@@ -77,12 +77,8 @@ async def detect_prey(image_bytes: bytes | None) -> DetectionResult:
             logger.info(f"Persisted prey image at {image_path}")
             return DetectionResult.positive(enhanced_message, image_bytes)
         else:
-            # No prey detected - unlock door and schedule auto-lock
-            message = "✅ NO PREY - Cat is safe to enter!"
-            unlock_status_message = await handle_no_prey_detection()
-            enhanced_message = f"{message}\n{unlock_status_message}"
-            logger.info("No prey detected - door unlocked, auto-lock scheduled")
-            return DetectionResult.negative(enhanced_message)
+            # No prey detected
+            return DetectionResult.negative()
     except Exception as e:
         logger.error(f"Error processing image: {type(e).__name__}: {e}", exc_info=True)
         return DetectionResult.error(f"Error processing image: {type(e).__name__}: {e}", image_bytes)

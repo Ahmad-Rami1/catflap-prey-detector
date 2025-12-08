@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 def should_skip_detection_recent_exit() -> bool:
     """
-    Check if cat just exited through flap (within last 30 seconds).
+    Check if cat just exited through flap (within last 3 minutes).
     Returns True if should skip detection (recent exit), False if should proceed.
     """
     logger.info("🔍 Checking if should skip detection due to recent exit...")
@@ -45,7 +45,7 @@ def should_skip_detection_recent_exit() -> bool:
 
             logger.info(f"⏱️ Time since last flap: {time_since_last_flap.total_seconds():.1f}s")
 
-            if time_since_last_flap < timedelta(seconds=30):
+            if time_since_last_flap < timedelta(seconds=180):
                 logger.info(f"🚫 SKIPPING prey detection - cat just exited {time_since_last_flap.total_seconds():.1f}s ago")
                 return True
             else:
@@ -86,18 +86,22 @@ def crop_image(image: np.ndarray, position: str, crop_width: int) -> np.ndarray:
 async def process_detection_results(results: list[DetectionResult]) -> None:
     """
     Process a list of detection results and trigger notifications for positive detections.
-    
+
     Args:
         results: List of DetectionResult objects from detect_prey coroutine calls
     """
+    from catflap_prey_detector.hardware.catflap_controller import handle_no_prey_detection
+
     logger.info(f"Processing {len(results)=} detection results")
-    
+
     first_positive_result = _get_positive_results(results)
-    
+
     if first_positive_result is None:
-        logger.info("No positive detections found in results")
+        logger.info("No positive detections found in results - unlocking door")
+        # No prey detected - unlock door ONCE after processing all images
+        await handle_no_prey_detection()
         return
-        
+
     await _send_notification(first_positive_result)
 
 

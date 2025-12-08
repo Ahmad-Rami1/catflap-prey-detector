@@ -6,6 +6,9 @@ from catflap_prey_detector.detection.config import catflap_config, notification_
 
 logger = logging.getLogger(__name__)
 
+# Global task reference to track the current auto-lock timer
+_auto_lock_task: asyncio.Task | None = None
+
 
 class CatflapController:
     """Manages catflap locking with async timing and state tracking."""
@@ -198,6 +201,8 @@ async def handle_no_prey_detection() -> str:
     Returns:
         Status message for joining with detection message
     """
+    global _auto_lock_task
+
     try:
         async with aiohttp.ClientSession() as session:
             # First, check current status
@@ -222,8 +227,14 @@ async def handle_no_prey_detection() -> str:
             ) as response:
                 if response.status == 200:
                     logger.info("Cat door unlocked successfully (GREEN)")
-                    # Schedule auto-lock to YELLOW after 2 minutes
-                    asyncio.create_task(_auto_lock_after_delay())
+
+                    # Cancel any existing auto-lock timer
+                    if _auto_lock_task is not None and not _auto_lock_task.done():
+                        logger.info("Cancelling existing auto-lock timer")
+                        _auto_lock_task.cancel()
+
+                    # Schedule new auto-lock to YELLOW after 2 minutes
+                    _auto_lock_task = asyncio.create_task(_auto_lock_after_delay())
                     return "✅ Cat door unlocked - will auto-lock in 2 minutes"
                 else:
                     logger.warning(f"Cat door API returned status {response.status}")
