@@ -303,7 +303,6 @@ class PreyDetectorTracker:
                 image_bytes = buffer.tobytes()
 
                 # Track which trigger positions contributed frames this episode
-                global EPISODE_TRIGGER_POSITIONS
                 if trigger_object_position is not None:
                     EPISODE_TRIGGER_POSITIONS.add(trigger_object_position)
 
