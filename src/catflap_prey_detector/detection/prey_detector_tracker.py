@@ -252,6 +252,7 @@ class PreyDetectorTracker:
     
     def update(self, trigger_object_position: Literal["left", "middle", "right"] | None, image_array: np.ndarray) -> None:
         # Track previous trigger position to infer simple left/right movement
+        global FIRST_MIDDLE_IMAGE_BYTES
         prev_position: Literal["left", "middle", "right"] | None = self.last_trigger_position
         if trigger_object_position is not None:
             self.last_trigger_position = trigger_object_position
@@ -263,7 +264,7 @@ class PreyDetectorTracker:
         # Skip detection if cat just exited (within last 3 minutes)
         if trigger_object_position and should_skip_detection_recent_exit():
             # Reset negative batch counter and episode tracking on a fresh flap event
-            global CONSECUTIVE_NEGATIVE_ONLY_BATCHES, EPISODE_TRIGGER_POSITIONS, FIRST_MIDDLE_IMAGE_BYTES
+            global CONSECUTIVE_NEGATIVE_ONLY_BATCHES, EPISODE_TRIGGER_POSITIONS
             CONSECUTIVE_NEGATIVE_ONLY_BATCHES = 0
             EPISODE_TRIGGER_POSITIONS.clear()
             FIRST_MIDDLE_IMAGE_BYTES = None
@@ -329,7 +330,6 @@ class PreyDetectorTracker:
 
                 # Capture the first image where the trigger position is "middle"
                 # for use in the unlock notification photo.
-                global FIRST_MIDDLE_IMAGE_BYTES
                 if trigger_object_position == "middle" and FIRST_MIDDLE_IMAGE_BYTES is None:
                     FIRST_MIDDLE_IMAGE_BYTES = image_bytes
 
