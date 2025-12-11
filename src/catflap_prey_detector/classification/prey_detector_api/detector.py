@@ -61,7 +61,7 @@ async def detect_prey(image_bytes: bytes | None) -> DetectionResult:
     """
     try:
         if image_bytes is None:
-            return DetectionResult.negative()
+            return DetectionResult.error("No image bytes provided", None)
         image_base64 = base64.b64encode(image_bytes).decode('utf-8')
         
         prey_detected = await make_request(image_base64)
@@ -77,8 +77,8 @@ async def detect_prey(image_bytes: bytes | None) -> DetectionResult:
             logger.info(f"Persisted prey image at {image_path}")
             return DetectionResult.positive(enhanced_message, image_bytes)
         else:
-            # No prey detected
-            return DetectionResult.negative()
+            # No prey detected - still attach image bytes so we can notify on unlock
+            return DetectionResult.negative("No prey detected", image_bytes)
     except Exception as e:
         logger.error(f"Error processing image: {type(e).__name__}: {e}", exc_info=True)
         return DetectionResult.error(f"Error processing image: {type(e).__name__}: {e}", image_bytes)

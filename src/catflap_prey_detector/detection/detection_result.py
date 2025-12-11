@@ -22,9 +22,9 @@ class DetectionResult:
         return cls(is_positive=True, message=message, image_bytes=image_bytes)
     
     @classmethod
-    def negative(cls, message: str | None = None) -> 'DetectionResult':
+    def negative(cls, message: str | None = None, image_bytes: bytes | None = None) -> 'DetectionResult':
         """Create a negative detection result."""
-        return cls(is_positive=False, message=message)
+        return cls(is_positive=False, message=message, image_bytes=image_bytes)
     
     @classmethod
     def error(cls, error_message: str, image_bytes: bytes | None = None) -> 'DetectionResult':

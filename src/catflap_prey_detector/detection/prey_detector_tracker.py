@@ -146,7 +146,16 @@ async def process_detection_results(results: list[DetectionResult]) -> None:
         )
         CONSECUTIVE_NEGATIVE_ONLY_BATCHES = 0
         # No prey detected across multiple batches - unlock door ONCE
-        await handle_no_prey_detection()
+        # and send a Telegram notification with the latest negative image if available.
+        last_with_image = next(
+            (r for r in reversed(results) if r.image_bytes is not None),
+            None,
+        )
+        unlock_message = await handle_no_prey_detection()
+        if unlock_message:
+            from catflap_prey_detector.notifications.telegram_bot import notify_event_async
+            image_bytes = last_with_image.image_bytes if last_with_image else None
+            await notify_event_async(unlock_message, image_bytes)
     else:
         logger.info("Keeping current door state (waiting for more negative-only batches)")
 
