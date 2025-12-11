@@ -186,6 +186,10 @@ class PreyDetectorTracker:
 
         # Skip detection if cat just exited (within last 3 minutes)
         if trigger_object_position and should_skip_detection_recent_exit():
+            # Reset negative batch counter on a fresh flap event so that
+            # older negative-only batches can't trigger an unlock after a new exit.
+            global CONSECUTIVE_NEGATIVE_ONLY_BATCHES
+            CONSECUTIVE_NEGATIVE_ONLY_BATCHES = 0
             return
 
         if trigger_object_position:
