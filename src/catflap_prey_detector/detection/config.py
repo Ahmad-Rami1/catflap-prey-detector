@@ -93,7 +93,7 @@ class PreyDetectorTrackerConfig(BaseSettings):
     reset_time_window: float = Field(default=5.0, description="Time window for prey detection analysis tracking (seconds)")
     image_size: tuple[int, int] | None = Field(default=(384, 384), description="Image size for prey detection analysis, None for the camera size")
     concurrency: int = Field(default=10, description="Maximum number of concurrent prey detection API requests")
-    ssim_threshold: float = Field(default=0.9, description="SSIM threshold for image similarity comparison")
+    ssim_threshold: float = Field(default=0.93, description="SSIM threshold for image similarity comparison")
     save_images: bool = Field(default=True, description="Whether to save images for prey detection analysis")
 
 class CatFlapConfig(BaseSettings):

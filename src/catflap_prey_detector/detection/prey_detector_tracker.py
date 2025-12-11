@@ -97,9 +97,21 @@ async def process_detection_results(results: list[DetectionResult]) -> None:
     first_positive_result = _get_positive_results(results)
 
     if first_positive_result is None:
-        logger.info("No positive detections found in results - unlocking door")
-        # No prey detected - unlock door ONCE after processing all images
-        await handle_no_prey_detection()
+        negative_count = len(results)
+        required_negative_results = 3
+
+        if negative_count >= required_negative_results:
+            logger.info(
+                f"No positive detections found and {negative_count} negative results "
+                f"(>= {required_negative_results}) - unlocking door"
+            )
+            # No prey detected - unlock door ONCE after processing all images
+            await handle_no_prey_detection()
+        else:
+            logger.info(
+                f"No positive detections found but only {negative_count} negative results "
+                f"(< {required_negative_results}) - keeping current door state"
+            )
         return
 
     await _send_notification(first_positive_result)
