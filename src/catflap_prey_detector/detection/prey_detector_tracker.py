@@ -324,11 +324,12 @@ class PreyDetectorTracker:
 
                 # Remember the last image we enqueued, for use as a fallback
                 # when the result batch has no image_bytes attached.
-                global LAST_ENQUEUED_IMAGE_BYTES, FIRST_MIDDLE_IMAGE_BYTES
+                global LAST_ENQUEUED_IMAGE_BYTES
                 LAST_ENQUEUED_IMAGE_BYTES = image_bytes
 
                 # Capture the first image where the trigger position is "middle"
                 # for use in the unlock notification photo.
+                global FIRST_MIDDLE_IMAGE_BYTES
                 if trigger_object_position == "middle" and FIRST_MIDDLE_IMAGE_BYTES is None:
                     FIRST_MIDDLE_IMAGE_BYTES = image_bytes
 
