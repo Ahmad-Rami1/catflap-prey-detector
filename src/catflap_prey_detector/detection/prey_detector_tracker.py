@@ -19,6 +19,10 @@ from skimage.metrics import structural_similarity as ssim
 
 logger = logging.getLogger(__name__)
 
+# Track how many consecutive negative-only result batches we've seen.
+# A "batch" here is one full consumer run in async_consumer_with_task_group_and_result_processor.
+CONSECUTIVE_NEGATIVE_ONLY_BATCHES = 0
+
 
 def should_skip_detection_recent_exit() -> bool:
     """
@@ -85,36 +89,66 @@ def crop_image(image: np.ndarray, position: str, crop_width: int) -> np.ndarray:
 
 async def process_detection_results(results: list[DetectionResult]) -> None:
     """
-    Process a list of detection results and trigger notifications for positive detections.
+    Process a list of detection results and trigger notifications / door control.
+
+    We now require multiple *full* negative-only batches before unlocking:
+    - Any positive result (prey detected) triggers a notification and resets the
+      negative-batch counter (door is locked via handle_prey_detection elsewhere).
+    - A negative-only batch with at least MIN_RESULTS_PER_BATCH results increments
+      the consecutive negative-only batch counter.
+    - Only after REQUIRED_NEGATIVE_ONLY_BATCHES such batches do we call
+      handle_no_prey_detection() to unlock.
 
     Args:
         results: List of DetectionResult objects from detect_prey coroutine calls
     """
     from catflap_prey_detector.hardware.catflap_controller import handle_no_prey_detection
+    global CONSECUTIVE_NEGATIVE_ONLY_BATCHES
 
     logger.info(f"Processing {len(results)=} detection results")
 
     first_positive_result = _get_positive_results(results)
 
-    if first_positive_result is None:
-        negative_count = len(results)
-        required_negative_results = 3
-
-        if negative_count >= required_negative_results:
-            logger.info(
-                f"No positive detections found and {negative_count} negative results "
-                f"(>= {required_negative_results}) - unlocking door"
-            )
-            # No prey detected - unlock door ONCE after processing all images
-            await handle_no_prey_detection()
-        else:
-            logger.info(
-                f"No positive detections found but only {negative_count} negative results "
-                f"(< {required_negative_results}) - keeping current door state"
-            )
+    # Any positive result: send notification and reset counter
+    if first_positive_result is not None:
+        logger.info(
+            "Positive prey detection found in batch - resetting consecutive "
+            "negative-only batch counter"
+        )
+        CONSECUTIVE_NEGATIVE_ONLY_BATCHES = 0
+        await _send_notification(first_positive_result)
         return
 
-    await _send_notification(first_positive_result)
+    # No positive detections in this batch
+    negative_count = len(results)
+    MIN_RESULTS_PER_BATCH = 1
+    REQUIRED_NEGATIVE_ONLY_BATCHES = 2
+
+    if negative_count < MIN_RESULTS_PER_BATCH:
+        logger.info(
+            "No positive detections found but no valid results in batch - "
+            "not counting this batch towards unlock; keeping current door state"
+        )
+        return
+
+    # Count this as a full negative-only batch (at least one negative result)
+    CONSECUTIVE_NEGATIVE_ONLY_BATCHES += 1
+    logger.info(
+        "No positive detections found in batch - "
+        f"consecutive_negative_only_batches={CONSECUTIVE_NEGATIVE_ONLY_BATCHES}/"
+        f"{REQUIRED_NEGATIVE_ONLY_BATCHES}"
+    )
+
+    if CONSECUTIVE_NEGATIVE_ONLY_BATCHES >= REQUIRED_NEGATIVE_ONLY_BATCHES:
+        logger.info(
+            "Reached required number of consecutive negative-only batches - "
+            "unlocking door"
+        )
+        CONSECUTIVE_NEGATIVE_ONLY_BATCHES = 0
+        # No prey detected across multiple batches - unlock door ONCE
+        await handle_no_prey_detection()
+    else:
+        logger.info("Keeping current door state (waiting for more negative-only batches)")
 
 
 def _get_positive_results(results: list[DetectionResult]) -> DetectionResult | None:
