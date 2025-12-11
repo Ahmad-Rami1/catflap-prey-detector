@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 # A "batch" here is one full consumer run in async_consumer_with_task_group_and_result_processor.
 CONSECUTIVE_NEGATIVE_ONLY_BATCHES = 0
 
+# Track which trigger positions ("left", "middle", "right") have contributed
+# images to the current detection episode (since last flap or unlock).
+EPISODE_TRIGGER_POSITIONS: set[str] = set()
+
 
 def should_skip_detection_recent_exit() -> bool:
     """
@@ -103,7 +107,7 @@ async def process_detection_results(results: list[DetectionResult]) -> None:
         results: List of DetectionResult objects from detect_prey coroutine calls
     """
     from catflap_prey_detector.hardware.catflap_controller import handle_no_prey_detection
-    global CONSECUTIVE_NEGATIVE_ONLY_BATCHES
+    global CONSECUTIVE_NEGATIVE_ONLY_BATCHES, EPISODE_TRIGGER_POSITIONS
 
     logger.info(f"Processing {len(results)=} detection results")
 
@@ -116,6 +120,7 @@ async def process_detection_results(results: list[DetectionResult]) -> None:
             "negative-only batch counter"
         )
         CONSECUTIVE_NEGATIVE_ONLY_BATCHES = 0
+        EPISODE_TRIGGER_POSITIONS.clear()
         await _send_notification(first_positive_result)
         return
 
@@ -140,11 +145,21 @@ async def process_detection_results(results: list[DetectionResult]) -> None:
     )
 
     if CONSECUTIVE_NEGATIVE_ONLY_BATCHES >= REQUIRED_NEGATIVE_ONLY_BATCHES:
+        # Require that we've seen at least two different trigger positions
+        # in this detection episode before unlocking.
+        if len(EPISODE_TRIGGER_POSITIONS) < 2:
+            logger.info(
+                "Reached required negative-only batches but only saw positions "
+                f"{EPISODE_TRIGGER_POSITIONS} (<2 distinct); keeping door state"
+            )
+            return
+
         logger.info(
-            "Reached required number of consecutive negative-only batches - "
-            "unlocking door"
+            "Reached required number of consecutive negative-only batches with "
+            f"positions {EPISODE_TRIGGER_POSITIONS} - unlocking door"
         )
         CONSECUTIVE_NEGATIVE_ONLY_BATCHES = 0
+
         # No prey detected across multiple batches - unlock door ONCE
         # and send a Telegram notification with the latest negative image if available.
         last_with_image = next(
@@ -155,7 +170,35 @@ async def process_detection_results(results: list[DetectionResult]) -> None:
         if unlock_message:
             from catflap_prey_detector.notifications.telegram_bot import notify_event_async
             image_bytes = last_with_image.image_bytes if last_with_image else None
-            await notify_event_async(unlock_message, image_bytes)
+            positions_str = ", ".join(sorted(EPISODE_TRIGGER_POSITIONS)) or "unknown"
+            caption = f"{unlock_message}\nPositions in this episode: {positions_str}"
+
+            # Optionally overlay positions onto the image itself for easier visual debugging
+            if image_bytes is not None:
+                try:
+                    nparr = np.frombuffer(image_bytes, np.uint8)
+                    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                    if img is not None:
+                        overlay_text = f"Positions: {positions_str}"
+                        cv2.putText(
+                            img,
+                            overlay_text,
+                            (10, 25),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.7,
+                            (0, 255, 0),
+                            2,
+                            cv2.LINE_AA,
+                        )
+                        _, buf = cv2.imencode('.jpg', img)
+                        image_bytes = buf.tobytes()
+                except Exception as e:
+                    logger.error(f"Failed to overlay positions on unlock image: {e}")
+
+            await notify_event_async(caption, image_bytes)
+
+        # Reset episode positions after a completed unlock decision
+        EPISODE_TRIGGER_POSITIONS.clear()
     else:
         logger.info("Keeping current door state (waiting for more negative-only batches)")
 
@@ -205,8 +248,9 @@ class PreyDetectorTracker:
         if trigger_object_position and should_skip_detection_recent_exit():
             # Reset negative batch counter on a fresh flap event so that
             # older negative-only batches can't trigger an unlock after a new exit.
-            global CONSECUTIVE_NEGATIVE_ONLY_BATCHES
+            global CONSECUTIVE_NEGATIVE_ONLY_BATCHES, EPISODE_TRIGGER_POSITIONS
             CONSECUTIVE_NEGATIVE_ONLY_BATCHES = 0
+            EPISODE_TRIGGER_POSITIONS.clear()
             # Also reset orientation state on a new flap event
             self.last_trigger_position = None
             return
@@ -258,18 +302,41 @@ class PreyDetectorTracker:
                 _, buffer = cv2.imencode('.jpg', cropped_frame)
                 image_bytes = buffer.tobytes()
 
-                # Orientation debug: send only middle frames that follow a right-side trigger
+                # Track which trigger positions contributed frames this episode
+                global EPISODE_TRIGGER_POSITIONS
+                if trigger_object_position is not None:
+                    EPISODE_TRIGGER_POSITIONS.add(trigger_object_position)
+
+                # Orientation debug: send only middle frames that follow a right-side trigger,
+                # and draw the previous/current trigger positions onto the debug image.
                 if (
                     self.require_middle_after_right
                     and trigger_object_position == "middle"
                     and prev_position == "right"
                 ):
                     try:
+                        debug_image = cropped_frame.copy()
+                        debug_text = f"{prev_position or 'None'}→{trigger_object_position}"
+                        cv2.putText(
+                            debug_image,
+                            debug_text,
+                            (10, 25),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.7,
+                            (255, 0, 0),
+                            2,
+                            cv2.LINE_AA,
+                        )
+                        _, dbg_buf = cv2.imencode('.jpg', debug_image)
+                        debug_bytes = dbg_buf.tobytes()
+
                         from catflap_prey_detector.main import MAIN_LOOP
                         if MAIN_LOOP is not None:
                             asyncio.run_coroutine_threadsafe(
-                                notify_event_async("🔍 Orientation debug: right→middle frame",
-                                                   image_bytes),
+                                notify_event_async(
+                                    "🔍 Orientation debug: right→middle frame",
+                                    debug_bytes,
+                                ),
                                 MAIN_LOOP,
                             )
                             logger.info(
