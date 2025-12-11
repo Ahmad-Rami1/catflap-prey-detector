@@ -49,29 +49,29 @@ def run_detection_pipeline(notify_telegram=False, save_images=False, prey_detect
                     
                 try:
                     detections = yolo_detector.detect(current_frame)
-                    
+
                     trigger_object_position = None
-                    
+
                     if detections:
                         for detection in detections:
                             class_name = yolo_detector.classes_of_interest[detection.label]
                             logger.debug(f"Detected {class_name=} with confidence {detection.prob:.3f}")
-                            
+
                             if detection.label == detector_config.prey_detection_trigger_class_id:
                                 bbox_center_x = detection.rect.x + detection.rect.w / 2
                                 frame_width = current_frame.shape[1]
-                                
+
                                 if bbox_center_x < frame_width / 3:
                                     trigger_object_position = "left"
                                 elif bbox_center_x > 2 * frame_width / 3:
                                     trigger_object_position = "right"
                                 else:
                                     trigger_object_position = "middle"
-                        
+
                         logger.info(f"Found {len(detections)} objects at {timestamp.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}, {trigger_object_position=}")
                     else:
                         logger.debug("No objects detected")
-                    
+
                 except Exception as e:
                     logger.error(f"Error during YOLO inference: {e}", exc_info=True)
                     detections = []
@@ -92,7 +92,7 @@ def run_detection_pipeline(notify_telegram=False, save_images=False, prey_detect
                     for label, confidence, best_image_bytes in expired_objects:
                         class_name = yolo_detector.classes_of_interest[label]
                         logger.info(f"Expired detection: {class_name=} (confidence: {confidence:.3f})")
-                        
+
                         if notify_telegram:
                             message = f"{class_name.capitalize()} detected at {timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
                             try:

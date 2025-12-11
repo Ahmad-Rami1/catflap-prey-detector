@@ -27,6 +27,14 @@ CONSECUTIVE_NEGATIVE_ONLY_BATCHES = 0
 # images to the current detection episode (since last flap or unlock).
 EPISODE_TRIGGER_POSITIONS: set[str] = set()
 
+# Fallback: last image bytes enqueued for prey detection, used if the
+# current batch has no image_bytes attached (e.g. due to overflow tasks).
+LAST_ENQUEUED_IMAGE_BYTES: bytes | None = None
+
+# First image bytes where the trigger position was "middle" in the current
+# episode. This is what we'll try to use for the unlock notification photo.
+FIRST_MIDDLE_IMAGE_BYTES: bytes | None = None
+
 
 def should_skip_detection_recent_exit() -> bool:
     """
@@ -107,7 +115,7 @@ async def process_detection_results(results: list[DetectionResult]) -> None:
         results: List of DetectionResult objects from detect_prey coroutine calls
     """
     from catflap_prey_detector.hardware.catflap_controller import handle_no_prey_detection
-    global CONSECUTIVE_NEGATIVE_ONLY_BATCHES, EPISODE_TRIGGER_POSITIONS
+    global CONSECUTIVE_NEGATIVE_ONLY_BATCHES, EPISODE_TRIGGER_POSITIONS, FIRST_MIDDLE_IMAGE_BYTES
 
     logger.info(f"Processing {len(results)=} detection results")
 
@@ -121,6 +129,7 @@ async def process_detection_results(results: list[DetectionResult]) -> None:
         )
         CONSECUTIVE_NEGATIVE_ONLY_BATCHES = 0
         EPISODE_TRIGGER_POSITIONS.clear()
+        FIRST_MIDDLE_IMAGE_BYTES = None
         await _send_notification(first_positive_result)
         return
 
@@ -161,15 +170,22 @@ async def process_detection_results(results: list[DetectionResult]) -> None:
         CONSECUTIVE_NEGATIVE_ONLY_BATCHES = 0
 
         # No prey detected across multiple batches - unlock door ONCE
-        # and send a Telegram notification with the latest negative image if available.
-        last_with_image = next(
-            (r for r in reversed(results) if r.image_bytes is not None),
+        # and send a Telegram notification with the earliest available negative image.
+        first_with_image = next(
+            (r for r in results if r.image_bytes is not None),
             None,
         )
         unlock_message = await handle_no_prey_detection()
         if unlock_message:
             from catflap_prey_detector.notifications.telegram_bot import notify_event_async
-            image_bytes = last_with_image.image_bytes if last_with_image else None
+            # Prefer the first image from the current batch; if none are available
+            # (e.g., all tasks were overflow/error results), fall back to the
+            # last image we enqueued for prey detection.
+            global LAST_ENQUEUED_IMAGE_BYTES
+            if first_with_image is not None and first_with_image.image_bytes is not None:
+                image_bytes = first_with_image.image_bytes
+            else:
+                image_bytes = LAST_ENQUEUED_IMAGE_BYTES
             positions_str = ", ".join(sorted(EPISODE_TRIGGER_POSITIONS)) or "unknown"
             caption = f"{unlock_message}\nPositions in this episode: {positions_str}"
 
@@ -246,11 +262,11 @@ class PreyDetectorTracker:
 
         # Skip detection if cat just exited (within last 3 minutes)
         if trigger_object_position and should_skip_detection_recent_exit():
-            # Reset negative batch counter on a fresh flap event so that
-            # older negative-only batches can't trigger an unlock after a new exit.
-            global CONSECUTIVE_NEGATIVE_ONLY_BATCHES, EPISODE_TRIGGER_POSITIONS
+            # Reset negative batch counter and episode tracking on a fresh flap event
+            global CONSECUTIVE_NEGATIVE_ONLY_BATCHES, EPISODE_TRIGGER_POSITIONS, FIRST_MIDDLE_IMAGE_BYTES
             CONSECUTIVE_NEGATIVE_ONLY_BATCHES = 0
             EPISODE_TRIGGER_POSITIONS.clear()
+            FIRST_MIDDLE_IMAGE_BYTES = None
             # Also reset orientation state on a new flap event
             self.last_trigger_position = None
             return
@@ -305,6 +321,16 @@ class PreyDetectorTracker:
                 # Track which trigger positions contributed frames this episode
                 if trigger_object_position is not None:
                     EPISODE_TRIGGER_POSITIONS.add(trigger_object_position)
+
+                # Remember the last image we enqueued, for use as a fallback
+                # when the result batch has no image_bytes attached.
+                global LAST_ENQUEUED_IMAGE_BYTES, FIRST_MIDDLE_IMAGE_BYTES
+                LAST_ENQUEUED_IMAGE_BYTES = image_bytes
+
+                # Capture the first image where the trigger position is "middle"
+                # for use in the unlock notification photo.
+                if trigger_object_position == "middle" and FIRST_MIDDLE_IMAGE_BYTES is None:
+                    FIRST_MIDDLE_IMAGE_BYTES = image_bytes
 
                 # Orientation debug: send only middle frames that follow a right-side trigger,
                 # and draw the previous/current trigger positions onto the debug image.
