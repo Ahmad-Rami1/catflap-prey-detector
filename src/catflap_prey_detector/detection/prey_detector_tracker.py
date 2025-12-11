@@ -185,10 +185,18 @@ class PreyDetectorTracker:
         self.save_images = prey_detector_tracker_config.save_images
         self.uuid = uuid.uuid4()
         self._next_id = 0
+        self.allowed_trigger_positions = set(prey_detector_tracker_config.allowed_trigger_positions)
+        self.require_middle_after_right = prey_detector_tracker_config.require_middle_after_right
+        self.last_trigger_position: Literal["left", "middle", "right"] | None = None
         
         logger.debug(f"PreyDetectorTracker {self.uuid=}")
     
     def update(self, trigger_object_position: Literal["left", "middle", "right"] | None, image_array: np.ndarray) -> None:
+        # Track previous trigger position to infer simple left/right movement
+        prev_position: Literal["left", "middle", "right"] | None = self.last_trigger_position
+        if trigger_object_position is not None:
+            self.last_trigger_position = trigger_object_position
+
         if not self.prey_detection_enabled:
             logger.info("Prey detection is disabled")
             return
@@ -199,6 +207,20 @@ class PreyDetectorTracker:
             # older negative-only batches can't trigger an unlock after a new exit.
             global CONSECUTIVE_NEGATIVE_ONLY_BATCHES
             CONSECUTIVE_NEGATIVE_ONLY_BATCHES = 0
+            # Also reset orientation state on a new flap event
+            self.last_trigger_position = None
+            return
+
+        # Optionally restrict which side of the frame can trigger prey detection
+        if (
+            trigger_object_position
+            and self.allowed_trigger_positions
+            and trigger_object_position not in self.allowed_trigger_positions
+        ):
+            logger.info(
+                f"Skipping prey detection for trigger position {trigger_object_position!r} "
+                f"(allowed={self.allowed_trigger_positions})"
+            )
             return
 
         if trigger_object_position:
@@ -235,6 +257,30 @@ class PreyDetectorTracker:
                     cropped_frame = image_array
                 _, buffer = cv2.imencode('.jpg', cropped_frame)
                 image_bytes = buffer.tobytes()
+
+                # Orientation debug: send only middle frames that follow a right-side trigger
+                if (
+                    self.require_middle_after_right
+                    and trigger_object_position == "middle"
+                    and prev_position == "right"
+                ):
+                    try:
+                        from catflap_prey_detector.main import MAIN_LOOP
+                        if MAIN_LOOP is not None:
+                            asyncio.run_coroutine_threadsafe(
+                                notify_event_async("🔍 Orientation debug: right→middle frame",
+                                                   image_bytes),
+                                MAIN_LOOP,
+                            )
+                            logger.info(
+                                "Sent orientation debug frame (prev_position='right', current='middle')"
+                            )
+                        else:
+                            logger.error("MAIN_LOOP is not initialized. Cannot send orientation debug notification.")
+                    except Exception as e:
+                        logger.error(f"Failed to send orientation debug notification: {e}")
+
+                # Always enqueue image for prey detection as before
                 async_consumer_queue.sync_q.put(image_bytes)
                 logger.info(f"Image added to prey detection analysis queue {len(image_bytes)=}")
                 

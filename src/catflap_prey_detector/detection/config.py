@@ -95,6 +95,18 @@ class PreyDetectorTrackerConfig(BaseSettings):
     concurrency: int = Field(default=10, description="Maximum number of concurrent prey detection API requests")
     ssim_threshold: float = Field(default=0.93, description="SSIM threshold for image similarity comparison")
     save_images: bool = Field(default=True, description="Whether to save images for prey detection analysis")
+    allowed_trigger_positions: tuple[str, ...] = Field(
+        default=("left", "middle", "right"),
+        description="Allowed trigger positions for starting prey detection ('left', 'middle', 'right')"
+    )
+    require_middle_after_right: bool = Field(
+        default=True,
+        description=(
+            "If enabled, only enqueue prey detection when the current trigger position "
+            "is 'middle' and the previous trigger position was 'right' "
+            "(heuristic for cat walking from right to left / entering)."
+        )
+    )
 
 class CatFlapConfig(BaseSettings):
     """Configuration for cat flap control."""
