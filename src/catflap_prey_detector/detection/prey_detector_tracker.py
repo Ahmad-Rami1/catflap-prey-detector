@@ -38,11 +38,29 @@ FIRST_MIDDLE_IMAGE_BYTES: bytes | None = None
 
 def should_skip_detection_recent_exit() -> bool:
     """
-    Check if cat just exited through flap (within last 3 minutes).
-    Returns True if should skip detection (recent exit), False if should proceed.
+    Check if prey detection should be skipped due to current flap state
+    or very recent flap activity.
+
+    Returns True if we should skip detection, False if we should proceed.
     """
     logger.info("🔍 Checking if should skip detection due to recent exit...")
     try:
+        # 1) If the reed sensor reports OPEN (cat in the flap), skip detection.
+        try:
+            reed_status_url = f"{notification_config.catdoor_base_url}/reed/status"
+            logger.debug(f"Fetching reed status from: {reed_status_url}")
+            with urllib.request.urlopen(reed_status_url, timeout=2) as reed_response:
+                reed_data = json.loads(reed_response.read().decode())
+                reed_status = reed_data.get("reed_status", "UNKNOWN")
+                logger.info(f"Reed status for skip check: {reed_status}")
+                if reed_status == "OPEN":
+                    logger.info("🚫 SKIPPING prey detection - reed is OPEN (cat in flap)")
+                    return True
+        except Exception as e:
+            # If we can't get reed status, log but continue to log-based logic.
+            logger.error(f"❌ Failed to check reed status: {type(e).__name__}: {e} - falling back to reed log")
+
+        # 2) Fallback: use last reed log to detect very recent exits
         reed_log_url = f"{notification_config.catdoor_base_url}/logs/reed/last"
         logger.debug(f"Fetching reed log from: {reed_log_url}")
 
