@@ -142,34 +142,37 @@ catflap_controller = CatflapController()
 
 async def handle_prey_detection() -> str:
     """
-    Handle prey detection by locking cat door indefinitely (RED mode).
-    Door will remain locked until manually unlocked.
+    Handle prey detection by locking cat door for a limited time.
+
+    We call the Pi Zero REST API /detected endpoint:
+      - It sets the catflap to RED immediately
+      - After 5 minutes it auto-switches the flap mode back (you will adjust it to YELLOW)
 
     Returns:
         Status message for joining with detection message
     """
     try:
-        logger.info(f"Locking cat door indefinitely (RED mode)")
+        logger.info("Locking cat door via /detected endpoint (timed lock)")
 
-        # Send HTTP request to lock cat door to RED (indefinitely)
+        # Send HTTP request to /detected on the Pi Zero
         async with aiohttp.ClientSession() as session:
             async with session.get(
-                f"{notification_config.catdoor_base_url}/mode/red",
+                notification_config.catdoor_api_url,
                 timeout=aiohttp.ClientTimeout(total=5.0)
             ) as response:
                 if response.status == 200:
-                    logger.info("Cat door locked to RED successfully (indefinitely)")
-                    return "🔒 Cat door LOCKED indefinitely - manual unlock required"
+                    logger.info("Cat door /detected endpoint called successfully (timed lock)")
+                    return "🔒 Cat door LOCKED for 5 minutes - will auto-unlock via Pi Zero"
                 else:
-                    logger.warning(f"Cat door API returned status {response.status}")
-                    return f"⚠️ Cat door API returned status {response.status}"
+                    logger.warning(f"Cat door API (detected) returned status {response.status}")
+                    return f"⚠️ Cat door API (detected) returned status {response.status}"
 
     except asyncio.TimeoutError:
-        logger.error("Timeout while contacting cat door API")
-        return "⚠️ Timeout contacting cat door API"
+        logger.error("Timeout while contacting cat door API (/detected)")
+        return "⚠️ Timeout contacting cat door API (/detected)"
     except Exception as e:
-        logger.error(f"Error locking cat door: {e}")
-        return f"⚠️ Could not lock cat door: {str(e)}"
+        logger.error(f"Error locking cat door via /detected: {e}")
+        return f"⚠️ Could not lock cat door via /detected: {str(e)}"
 
 
 class DetectionPauser:
